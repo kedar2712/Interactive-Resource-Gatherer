@@ -45,7 +45,7 @@ const App: React.FC = () => {
   const isGameActiveRef = useRef(isGameActive);
   const gameReadyResolver = useRef<(() => void) | null>(null);
   
-  const createInitialGameState = useCallback((): GameState => {
+  const createInitialGameState = useCallback((costBudget: number): GameState => {
     let base: Position;
     let agent: Agent;
     let mudPatches: Position[];
@@ -94,7 +94,13 @@ const App: React.FC = () => {
             if (pathToResource.cost === Infinity) return false;
             
             const pathToBase = findPath(resource, base, mudPatches);
-            return pathToBase.cost !== Infinity;
+            if (pathToBase.cost === Infinity) return false;
+
+            // --- THIS IS THE FIX ---
+            // Check if the *total* round-trip cost is within the game's budget.
+            const roundTripCost = pathToResource.cost + pathToBase.cost;
+            return roundTripCost <= costBudget && roundTripCost > 0;
+            // --- END FIX ---
         });
 
         if (!isSolvable) {
@@ -124,7 +130,7 @@ const App: React.FC = () => {
       gameReadyResolver.current = resolve;
 
       // 1. Create the new state
-      const newGameState = createInitialGameState();
+      const newGameState = createInitialGameState(maxCost);
 
       // --- THIS IS THE FIX ---
       // 2. Imperatively update the refs *immediately* and *synchronously*.
@@ -165,7 +171,7 @@ const App: React.FC = () => {
 
 
   useEffect(() => {
-      setGameState(createInitialGameState());
+      setGameState(createInitialGameState(maxCost));
       setBenchmarkScore(calculateBenchmark(maxCost));
       setHighScore(parseInt(localStorage.getItem(`highScore_${maxCost}`) || '0', 10));
       // eslint-disable-next-line react-hooks/exhaustive-deps
