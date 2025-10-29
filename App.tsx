@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { GameState, Position, Resource, LogEntry, EventLogEntry, PathResult, StateRepresentation, Agent } from './types';
 import { findPath } from './services/pathfinding';
@@ -44,7 +45,7 @@ const App: React.FC = () => {
   const isGameActiveRef = useRef(isGameActive);
   const gameReadyResolver = useRef<(() => void) | null>(null);
   
-  const createInitialGameState = useCallback((cost: number): GameState => {
+  const createInitialGameState = useCallback((): GameState => {
     let base: Position;
     let agent: Agent;
     let mudPatches: Position[];
@@ -121,24 +122,40 @@ const App: React.FC = () => {
   const restartGame = useCallback(() => {
     return new Promise<void>((resolve) => {
       gameReadyResolver.current = resolve;
+
+      // 1. Create the new state
+      const newGameState = createInitialGameState();
+
+      // --- THIS IS THE FIX ---
+      // 2. Imperatively update the refs *immediately* and *synchronously*.
+      // This guarantees that when the `await restartGame()` in the bot loop
+      // completes, these refs are 100% guaranteed to point to the new state,
+      // eliminating the race condition.
+      gameStateRef.current = newGameState;
+      isGameActiveRef.current = true;
+      // --- END FIX ---
+
+      // 3. Schedule the React state updates
       setEpisodeId(prev => prev + 1);
-      setGameState(createInitialGameState(maxCost));
+      setGameState(newGameState);
       setEventLog([{ type: 'action-info', icon: '🚀', message: 'New game started!' }]);
       setIsGameActive(true);
       setBenchmarkScore(calculateBenchmark(maxCost));
       setHighScore(parseInt(localStorage.getItem(`highScore_${maxCost}`) || '0', 10));
     });
-  }, [maxCost, createInitialGameState]);
+  }, [
+      maxCost, 
+      createInitialGameState,
+      setEpisodeId,
+      setGameState,
+      setEventLog,
+      setIsGameActive,
+      setBenchmarkScore,
+      setHighScore
+  ]);
 
   useEffect(() => {
     // This effect hook is the key to the synchronized restart.
-    
-    // CRITICAL FIX: Update refs *before* resolving the promise.
-    // This guarantees that the refs are set with the new state *before*
-    // the promise resolves, winning the race condition.
-    gameStateRef.current = gameState;
-    isGameActiveRef.current = isGameActive;
-
     // It resolves the promise created in `restartGame` only after the state updates have been applied.
     if (isGameActive && gameState && gameState.stepCost === 0 && gameReadyResolver.current) {
       gameReadyResolver.current();
@@ -148,7 +165,7 @@ const App: React.FC = () => {
 
 
   useEffect(() => {
-      setGameState(createInitialGameState(maxCost));
+      setGameState(createInitialGameState());
       setBenchmarkScore(calculateBenchmark(maxCost));
       setHighScore(parseInt(localStorage.getItem(`highScore_${maxCost}`) || '0', 10));
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -171,7 +188,7 @@ const App: React.FC = () => {
   }, [highScore, maxCost, addEvent, restartGame, isBotRunning]);
 
   useEffect(() => {
-    // CRITICAL FIX: Also update refs here to keep them in sync on *every* state change.
+    // We update refs here as well to keep them in sync during regular gameplay.
     gameStateRef.current = gameState;
     isGameActiveRef.current = isGameActive;
 
@@ -427,7 +444,7 @@ const App: React.FC = () => {
               <FocusModal 
                 isVisible={!isGameActive}
                 onStart={handleStartGame}
-                finalScore={gameState?.stepCost ?? 0 >= maxCost ? gameState?.score : undefined}
+                finalScore={(gameState?.stepCost ?? 0) >= maxCost ? gameState?.score : undefined}
               />
                <div
                   className="fixed bg-gray-800 text-white py-1 px-3 rounded-md text-sm pointer-events-none transition-opacity z-20"
