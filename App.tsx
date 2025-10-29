@@ -41,9 +41,7 @@ const App: React.FC = () => {
   const [isBotRunning, setIsBotRunning] = useState(false);
 
   const gameStateRef = useRef(gameState);
-  useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
   const isGameActiveRef = useRef(isGameActive);
-  useEffect(() => { isGameActiveRef.current = isGameActive; }, [isGameActive]);
   const gameReadyResolver = useRef<(() => void) | null>(null);
   
   const createInitialGameState = useCallback((cost: number): GameState => {
@@ -110,6 +108,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // This effect hook is the key to the synchronized restart.
+    
+    // CRITICAL FIX: Update refs *before* resolving the promise.
+    // This guarantees that the refs are set with the new state *before*
+    // the promise resolves, winning the race condition.
+    gameStateRef.current = gameState;
+    isGameActiveRef.current = isGameActive;
+
     // It resolves the promise created in `restartGame` only after the state updates have been applied.
     if (isGameActive && gameState && gameState.stepCost === 0 && gameReadyResolver.current) {
       gameReadyResolver.current();
@@ -142,6 +147,10 @@ const App: React.FC = () => {
   }, [highScore, maxCost, addEvent, restartGame, isBotRunning]);
 
   useEffect(() => {
+    // CRITICAL FIX: Also update refs here to keep them in sync on *every* state change.
+    gameStateRef.current = gameState;
+    isGameActiveRef.current = isGameActive;
+
     if (isGameActive && gameState && gameState.stepCost >= maxCost) {
       endGame();
     }

@@ -7,4 +7,4 @@ export const GRASS_COST = 1;
 export const MUD_COST = 3;
 export const NORMAL_TREE_VALUE = 3;
 export const GOLDEN_TREE_VALUE = 5;
-export const BENCHMARK_COST_PER_POINT = 18;
+export const BENCHMARK_COST_PER_POINT = 12;
