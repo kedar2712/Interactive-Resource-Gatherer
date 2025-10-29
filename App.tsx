@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { GameState, Position, Resource, LogEntry, EventLogEntry, PathResult, StateRepresentation } from './types';
+import { GameState, Position, Resource, LogEntry, EventLogEntry, PathResult, StateRepresentation, Agent } from './types';
 import { findPath } from './services/pathfinding';
 import GameGrid from './components/GameGrid';
 import StatsBar from './components/StatsBar';
@@ -45,44 +45,68 @@ const App: React.FC = () => {
   const gameReadyResolver = useRef<(() => void) | null>(null);
   
   const createInitialGameState = useCallback((cost: number): GameState => {
-    const occupied = new Set<string>();
+    let base: Position;
+    let agent: Agent;
+    let mudPatches: Position[];
+    let resources: Resource[];
+    let isSolvable = false;
 
-    const getEmptyPosition = (): Position => {
-      let pos: Position;
-      do {
-        pos = {
-          x: Math.floor(Math.random() * GRID_SIZE),
-          y: Math.floor(Math.random() * GRID_SIZE),
+    // This loop will continue until a solvable map is generated.
+    do {
+        const occupied = new Set<string>();
+        const getEmptyPosition = (): Position => {
+            let pos: Position;
+            do {
+                pos = {
+                    x: Math.floor(Math.random() * GRID_SIZE),
+                    y: Math.floor(Math.random() * GRID_SIZE),
+                };
+            } while (occupied.has(`${pos.x},${pos.y}`));
+            occupied.add(`${pos.x},${pos.y}`);
+            return pos;
         };
-      } while (occupied.has(`${pos.x},${pos.y}`));
-      occupied.add(`${pos.x},${pos.y}`);
-      return pos;
-    };
-    
-    const base = getEmptyPosition();
-    occupied.add(`${base.x},${base.y}`);
+        
+        base = getEmptyPosition();
+        occupied.add(`${base.x},${base.y}`);
 
-    const agent = { ...base, holding: null };
+        agent = { ...base, holding: null };
 
-    const mudPatches: Position[] = Array.from({ length: NUM_MUD_PATCHES }, getEmptyPosition);
-    
-    const normalResources: Resource[] = Array.from({ length: NUM_NORMAL_RESOURCES }, () => ({
-      ...getEmptyPosition(),
-      type: 'normal',
-      value: NORMAL_TREE_VALUE,
-    }));
-    
-    const goldenResources: Resource[] = Array.from({ length: NUM_GOLDEN_RESOURCES }, () => ({
-      ...getEmptyPosition(),
-      type: 'golden',
-      value: GOLDEN_TREE_VALUE,
-    }));
+        mudPatches = Array.from({ length: NUM_MUD_PATCHES }, getEmptyPosition);
+        
+        const normalResources: Resource[] = Array.from({ length: NUM_NORMAL_RESOURCES }, () => ({
+            ...getEmptyPosition(),
+            type: 'normal',
+            value: NORMAL_TREE_VALUE,
+        }));
+        
+        const goldenResources: Resource[] = Array.from({ length: NUM_GOLDEN_RESOURCES }, () => ({
+            ...getEmptyPosition(),
+            type: 'golden',
+            value: GOLDEN_TREE_VALUE,
+        }));
+        
+        resources = [...normalResources, ...goldenResources];
+        
+        // --- Validation Step ---
+        isSolvable = resources.some(resource => {
+            const pathToResource = findPath(base, resource, mudPatches);
+            if (pathToResource.cost === Infinity) return false;
+            
+            const pathToBase = findPath(resource, base, mudPatches);
+            return pathToBase.cost !== Infinity;
+        });
+
+        if (!isSolvable) {
+            console.warn("Generated an unsolvable map. Retrying...");
+        }
+
+    } while (!isSolvable);
 
     return {
       agent,
       base,
       mudPatches,
-      resources: [...normalResources, ...goldenResources],
+      resources,
       score: 0,
       stepCost: 0,
     };
