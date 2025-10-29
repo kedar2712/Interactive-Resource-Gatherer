@@ -9,6 +9,7 @@ interface BotDependencies {
   handleMove: (dx: number, dy: number) => void;
   handleAction: () => void;
   findPath: typeof findPath;
+  endGame: () => void; // Added endGame to dependencies
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -103,49 +104,64 @@ export async function runExpertBotEpisode(deps: BotDependencies) {
     if (!initialGameState) break;
 
     let bestResource: Resource | null = null;
+    let bestPathToResource: PathResult | null = null;
+    let bestPathToBase: PathResult | null = null;
     let maxEfficiency = -1;
-    let bestResourceToBaseCost = Infinity;
+    let bestResourcePathToResourceCost = Infinity;
 
     for (const resource of initialGameState.resources) {
       const pathToResource = deps.findPath(initialGameState.agent, resource, initialGameState.mudPatches);
-      
-      if (initialGameState.stepCost + pathToResource.cost > deps.maxCost) {
-        continue; 
-      }
-
       const pathToBase = deps.findPath(resource, initialGameState.base, initialGameState.mudPatches);
 
       if (pathToResource.cost === Infinity || pathToBase.cost === Infinity) {
         continue; 
       }
-
+      
       const totalCost = pathToResource.cost + pathToBase.cost;
-      if (totalCost === 0) continue;
 
+      // FIX: Handle "infinite efficiency" case (zero cost) as the highest priority
+      if (totalCost === 0 && resource.value > 0) {
+        maxEfficiency = Infinity;
+        bestResource = resource;
+        bestPathToResource = pathToResource;
+        bestPathToBase = pathToBase;
+        break; // Nothing can be more efficient, so we can stop searching.
+      }
+      
+      if (initialGameState.stepCost + totalCost > deps.maxCost) {
+        continue;
+      }
+      
       const efficiency = resource.value / totalCost;
-      const distanceToBase = pathToBase.cost;
 
       if (efficiency > maxEfficiency) {
         maxEfficiency = efficiency;
         bestResource = resource;
-        bestResourceToBaseCost = distanceToBase;
+        bestPathToResource = pathToResource;
+        bestPathToBase = pathToBase;
+        bestResourcePathToResourceCost = pathToResource.cost;
       } else if (efficiency === maxEfficiency) {
-        if (distanceToBase < bestResourceToBaseCost) {
+        // FIX: Tie-break by choosing the resource that is CLOSER TO THE AGENT
+        if (pathToResource.cost < bestResourcePathToResourceCost) {
           bestResource = resource;
-          bestResourceToBaseCost = distanceToBase;
+          bestPathToResource = pathToResource;
+          bestPathToBase = pathToBase;
+          bestResourcePathToResourceCost = pathToResource.cost;
         }
       }
     }
 
-    if (!bestResource) {
+    if (!bestResource || !bestPathToResource || !bestPathToBase) {
+      // If no profitable resource is found, the bot considers the game over.
+      // It must call endGame() to signal this to the main app.
+      deps.endGame();
       break; 
     }
 
     // --- Execute Plan ---
 
     // 1. Go to the most efficient resource
-    const pathToResource = deps.findPath(initialGameState.agent, bestResource, initialGameState.mudPatches);
-    const pathSuccess = await executePath(pathToResource.path, deps);
+    const pathSuccess = await executePath(bestPathToResource.path, deps);
     if (!pathSuccess || !deps.isGameActive()) break;
 
     // 2. Collect the resource and wait for the state to update
@@ -166,8 +182,7 @@ export async function runExpertBotEpisode(deps: BotDependencies) {
     }
     
     // 3. Go back to base
-    const pathToBase = deps.findPath(stateAfterCollect.agent, stateAfterCollect.base, stateAfterCollect.mudPatches);
-    const returnPathSuccess = await executePath(pathToBase.path, deps);
+    const returnPathSuccess = await executePath(bestPathToBase.path, deps);
     if (!returnPathSuccess || !deps.isGameActive()) break;
 
     // 4. Deliver the resource and wait for the state to update

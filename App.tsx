@@ -44,6 +44,7 @@ const App: React.FC = () => {
   useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
   const isGameActiveRef = useRef(isGameActive);
   useEffect(() => { isGameActiveRef.current = isGameActive; }, [isGameActive]);
+  const gameReadyResolver = useRef<(() => void) | null>(null);
   
   const createInitialGameState = useCallback((cost: number): GameState => {
     const occupied = new Set<string>();
@@ -96,13 +97,26 @@ const App: React.FC = () => {
   }, []);
   
   const restartGame = useCallback(() => {
-    setEpisodeId(prev => prev + 1);
-    setGameState(createInitialGameState(maxCost));
-    setEventLog([{ type: 'action-info', icon: '🚀', message: 'New game started!' }]);
-    setIsGameActive(true);
-    setBenchmarkScore(calculateBenchmark(maxCost));
-    setHighScore(parseInt(localStorage.getItem(`highScore_${maxCost}`) || '0', 10));
+    return new Promise<void>((resolve) => {
+      gameReadyResolver.current = resolve;
+      setEpisodeId(prev => prev + 1);
+      setGameState(createInitialGameState(maxCost));
+      setEventLog([{ type: 'action-info', icon: '🚀', message: 'New game started!' }]);
+      setIsGameActive(true);
+      setBenchmarkScore(calculateBenchmark(maxCost));
+      setHighScore(parseInt(localStorage.getItem(`highScore_${maxCost}`) || '0', 10));
+    });
   }, [maxCost, createInitialGameState]);
+
+  useEffect(() => {
+    // This effect hook is the key to the synchronized restart.
+    // It resolves the promise created in `restartGame` only after the state updates have been applied.
+    if (isGameActive && gameState && gameState.stepCost === 0 && gameReadyResolver.current) {
+      gameReadyResolver.current();
+      gameReadyResolver.current = null;
+    }
+  }, [isGameActive, gameState]);
+
 
   useEffect(() => {
       setGameState(createInitialGameState(maxCost));
@@ -112,19 +126,20 @@ const App: React.FC = () => {
   }, []);
 
   const endGame = useCallback(() => {
-    if (!gameState) return;
+    const currentGameState = gameStateRef.current;
+    if (!currentGameState) return;
     setIsGameActive(false);
     playSound('gameOver', 'C3', '1n');
-    if (gameState.score > highScore) {
-      setHighScore(gameState.score);
-      localStorage.setItem(`highScore_${maxCost}`, gameState.score.toString());
-      addEvent({ type: 'action-info', icon: '🏆', message: `New High Score: ${gameState.score}!` });
+    if (currentGameState.score > highScore) {
+      setHighScore(currentGameState.score);
+      localStorage.setItem(`highScore_${maxCost}`, currentGameState.score.toString());
+      addEvent({ type: 'action-info', icon: '🏆', message: `New High Score: ${currentGameState.score}!` });
     }
-    addEvent({ type: 'action-info', icon: '🏁', message: `Budget reached! <strong>Final Score: ${gameState.score}</strong>` });
+    addEvent({ type: 'action-info', icon: '🏁', message: `Budget reached! <strong>Final Score: ${currentGameState.score}</strong>` });
     if (!isBotRunning) {
         setTimeout(restartGame, 4000);
     }
-  }, [gameState, highScore, maxCost, addEvent, restartGame, isBotRunning]);
+  }, [highScore, maxCost, addEvent, restartGame, isBotRunning]);
 
   useEffect(() => {
     if (isGameActive && gameState && gameState.stepCost >= maxCost) {
@@ -239,7 +254,7 @@ const App: React.FC = () => {
   }, [addEvent, benchmarkScore]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (!isGameActive || !gameState) return;
+    if (!isGameActive || !gameState || isBotRunning) return;
     
     let action = -1;
     switch (e.key) {
@@ -264,7 +279,7 @@ const App: React.FC = () => {
         case 4: handleAction(); break;
       }
     }
-  }, [isGameActive, gameState, logCurrentAction, handleMove, handleAction]);
+  }, [isGameActive, gameState, logCurrentAction, handleMove, handleAction, isBotRunning]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -326,11 +341,9 @@ const App: React.FC = () => {
   const runBotGames = async () => {
     await initAudio();
     setIsBotRunning(true);
-    window.removeEventListener('keydown', handleKeyDown);
 
     for (let i = 0; i < 100; i++) {
-        restartGame();
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await restartGame();
 
         await runExpertBotEpisode({
             getGameState: () => gameStateRef.current,
@@ -340,11 +353,11 @@ const App: React.FC = () => {
             handleMove,
             handleAction,
             findPath,
+            endGame,
         });
     }
 
     setIsBotRunning(false);
-    window.addEventListener('keydown', handleKeyDown);
     addEvent({ type: 'action-info', icon: '🤖', message: 'Bot finished running 100 games.' });
   };
 
@@ -398,7 +411,7 @@ const App: React.FC = () => {
                 setBenchmarkScore(calculateBenchmark(newCost));
                 setHighScore(parseInt(localStorage.getItem(`highScore_${newCost}`) || '0', 10));
               }}
-              onRestart={restartGame}
+              onRestart={handleStartGame} // Changed to handleStartGame for consistency
               isMuted={isMuted}
               onMuteToggle={() => setIsMuted(!isMuted)}
               isBotRunning={isBotRunning}
