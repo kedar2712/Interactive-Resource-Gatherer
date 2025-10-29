@@ -43,6 +43,7 @@ const App: React.FC = () => {
 
   const gameStateRef = useRef(gameState);
   const isGameActiveRef = useRef(isGameActive);
+  const isBotRunningRef = useRef(isBotRunning);
   const gameReadyResolver = useRef<(() => void) | null>(null);
   
   const createInitialGameState = useCallback((costBudget: number): GameState => {
@@ -96,11 +97,8 @@ const App: React.FC = () => {
             const pathToBase = findPath(resource, base, mudPatches);
             if (pathToBase.cost === Infinity) return false;
 
-            // --- THIS IS THE FIX ---
-            // Check if the *total* round-trip cost is within the game's budget.
             const roundTripCost = pathToResource.cost + pathToBase.cost;
             return roundTripCost <= costBudget && roundTripCost > 0;
-            // --- END FIX ---
         });
 
         if (!isSolvable) {
@@ -129,19 +127,11 @@ const App: React.FC = () => {
     return new Promise<void>((resolve) => {
       gameReadyResolver.current = resolve;
 
-      // 1. Create the new state
       const newGameState = createInitialGameState(maxCost);
 
-      // --- THIS IS THE FIX ---
-      // 2. Imperatively update the refs *immediately* and *synchronously*.
-      // This guarantees that when the `await restartGame()` in the bot loop
-      // completes, these refs are 100% guaranteed to point to the new state,
-      // eliminating the race condition.
       gameStateRef.current = newGameState;
       isGameActiveRef.current = true;
-      // --- END FIX ---
 
-      // 3. Schedule the React state updates
       setEpisodeId(prev => prev + 1);
       setGameState(newGameState);
       setEventLog([{ type: 'action-info', icon: '🚀', message: 'New game started!' }]);
@@ -161,8 +151,6 @@ const App: React.FC = () => {
   ]);
 
   useEffect(() => {
-    // This effect hook is the key to the synchronized restart.
-    // It resolves the promise created in `restartGame` only after the state updates have been applied.
     if (isGameActive && gameState && gameState.stepCost === 0 && gameReadyResolver.current) {
       gameReadyResolver.current();
       gameReadyResolver.current = null;
@@ -188,13 +176,12 @@ const App: React.FC = () => {
       addEvent({ type: 'action-info', icon: '🏆', message: `New High Score: ${currentGameState.score}!` });
     }
     addEvent({ type: 'action-info', icon: '🏁', message: `Budget reached! <strong>Final Score: ${currentGameState.score}</strong>` });
-    if (!isBotRunning) {
+    if (!isBotRunningRef.current) {
         setTimeout(restartGame, 4000);
     }
-  }, [highScore, maxCost, addEvent, restartGame, isBotRunning]);
+  }, [highScore, maxCost, addEvent, restartGame]);
 
   useEffect(() => {
-    // We update refs here as well to keep them in sync during regular gameplay.
     gameStateRef.current = gameState;
     isGameActiveRef.current = isGameActive;
 
@@ -397,6 +384,7 @@ const App: React.FC = () => {
   const runBotGames = async () => {
     await initAudio();
     setIsBotRunning(true);
+    isBotRunningRef.current = true;
 
     for (let i = 0; i < 100; i++) {
         await restartGame();
@@ -413,6 +401,7 @@ const App: React.FC = () => {
     }
 
     setIsBotRunning(false);
+    isBotRunningRef.current = false;
     addEvent({ type: 'action-info', icon: '🤖', message: 'Bot finished running 100 games.' });
   };
 

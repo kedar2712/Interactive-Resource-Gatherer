@@ -118,6 +118,15 @@ export async function runExpertBotEpisode(deps: BotDependencies) {
       
       const totalCost = pathToResource.cost + pathToBase.cost;
 
+      // This check was wrong. We WANT the bot to start a path
+      // even if it can't finish it. The main game loop in App.tsx
+      // will stop the game when the budget is exceeded mid-path.
+      /*
+      if (initialGameState.stepCost + totalCost > deps.maxCost) {
+        continue;
+      }
+      */
+      
       // FIX: Handle "infinite efficiency" case (zero cost) as the highest priority
       if (totalCost === 0 && resource.value > 0) {
         maxEfficiency = Infinity;
@@ -125,10 +134,6 @@ export async function runExpertBotEpisode(deps: BotDependencies) {
         bestPathToResource = pathToResource;
         bestPathToBase = pathToBase;
         break; // Nothing can be more efficient, so we can stop searching.
-      }
-      
-      if (initialGameState.stepCost + totalCost > deps.maxCost) {
-        continue;
       }
       
       const efficiency = resource.value / totalCost;
