@@ -13,17 +13,64 @@ interface BotDependencies {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function executePath(path: Position[], deps: BotDependencies) {
-  const currentState = deps.getGameState();
-  if (!currentState) return;
+/**
+ * Awaits a specific condition in the game state to become true.
+ * This is crucial for synchronizing the bot's imperative logic with React's async state updates.
+ * @param condition A function that returns true when the desired state is reached.
+ * @param getGameState A function to get the current game state.
+ * @param timeoutMs The maximum time to wait in milliseconds.
+ * @returns The new game state if the condition is met, otherwise null.
+ */
+async function waitForStateChange(
+  condition: (state: GameState) => boolean,
+  getGameState: () => GameState | null,
+  timeoutMs = 500, // Increased timeout for more reliability
+  pollIntervalMs = 10
+): Promise<GameState | null> {
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeoutMs) {
+    const currentState = getGameState();
+    if (currentState && condition(currentState)) {
+      return currentState;
+    }
+    await delay(pollIntervalMs);
+  }
+  console.error("Bot timed out waiting for state change.");
+  return null; // Timed out
+}
 
-  let currentPos: Position = currentState.agent;
 
-  for (const nextPos of path.slice(1)) {
-    if (!deps.isGameActive()) return;
+/**
+ * Executes a path step-by-step, ensuring each move is confirmed in the state before proceeding.
+ * @param path The array of positions to follow.
+ * @param deps The bot's dependencies.
+ * @returns A boolean indicating whether the path was completed successfully.
+ */
+async function executePath(path: Position[], deps: BotDependencies): Promise<boolean> {
+  if (path.length < 2) {
+    return true; // A path of 0 or 1 steps is instantly successful.
+  }
 
-    const dx = nextPos.x - currentPos.x;
-    const dy = nextPos.y - currentPos.y;
+  for (let i = 0; i < path.length - 1; i++) {
+    if (!deps.isGameActive()) return false;
+
+    const currentStep = path[i];
+    const nextStep = path[i + 1];
+
+    const stateBeforeMove = deps.getGameState();
+    if (!stateBeforeMove) return false;
+
+    // Sanity check: Ensure agent is where we expect it to be before moving.
+    if (stateBeforeMove.agent.x !== currentStep.x || stateBeforeMove.agent.y !== currentStep.y) {
+      console.error("Bot Desync! Agent is not at the expected path position. Aborting path.", {
+        expected: currentStep,
+        actual: stateBeforeMove.agent,
+      });
+      return false;
+    }
+
+    const dx = nextStep.x - currentStep.x;
+    const dy = nextStep.y - currentStep.y;
 
     let action = -1;
     if (dx === 0 && dy === -1) action = 0; // Up
@@ -32,92 +79,112 @@ async function executePath(path: Position[], deps: BotDependencies) {
     if (dx === 1 && dy === 0) action = 3;  // Right
 
     if (action !== -1) {
-      const stateBeforeMove = deps.getGameState();
-      if (stateBeforeMove) {
-        deps.logCurrentAction(action, stateBeforeMove);
-        deps.handleMove(dx, dy);
-        // OPTIMIZATION: Use a 0ms delay to yield to the event loop, allowing React state to update
-        // without introducing significant latency. This makes the bot run much faster.
-        await delay(0);
+      deps.logCurrentAction(action, stateBeforeMove);
+      deps.handleMove(dx, dy);
+      
+      // CRITICAL FIX: Wait for the state to reflect that the move was completed.
+      const stateAfterMove = await waitForStateChange(
+        (state) => state.agent.x === nextStep.x && state.agent.y === nextStep.y,
+        deps.getGameState
+      );
+
+      if (!stateAfterMove) {
+        console.error("Bot failed to confirm move completion. Aborting path.");
+        return false;
       }
     }
-    currentPos = nextPos;
   }
+  return true;
 }
 
 export async function runExpertBotEpisode(deps: BotDependencies) {
   while (deps.isGameActive()) {
-    const gameState = deps.getGameState();
-    if (!gameState) break;
-
-    // FIX 1: Removed the faulty state check. The bot should be able to start a new
-    // cycle from the base after delivering a resource. This check incorrectly
-    // terminated the episode after only one resource was collected.
+    const initialGameState = deps.getGameState();
+    if (!initialGameState) break;
 
     let bestResource: Resource | null = null;
     let maxEfficiency = -1;
+    let bestResourceToBaseCost = Infinity;
 
-    for (const resource of gameState.resources) {
-      const pathToResource = deps.findPath(gameState.agent, resource, gameState.mudPatches);
+    for (const resource of initialGameState.resources) {
+      const pathToResource = deps.findPath(initialGameState.agent, resource, initialGameState.mudPatches);
       
-      // FIX 2: Corrected the budgeting logic. An expert bot should collect a resource
-      // if it can REACH it, even if it can't afford the full return trip. This maximizes
-      // score potential near the end of the budget.
-      if (gameState.stepCost + pathToResource.cost > deps.maxCost) {
-        continue; // Cannot afford to even reach this resource
+      if (initialGameState.stepCost + pathToResource.cost > deps.maxCost) {
+        continue; 
       }
 
-      const pathToBase = deps.findPath(resource, gameState.base, gameState.mudPatches);
+      const pathToBase = deps.findPath(resource, initialGameState.base, initialGameState.mudPatches);
 
       if (pathToResource.cost === Infinity || pathToBase.cost === Infinity) {
-        continue; // Unreachable
+        continue; 
       }
 
       const totalCost = pathToResource.cost + pathToBase.cost;
       if (totalCost === 0) continue;
 
       const efficiency = resource.value / totalCost;
+      const distanceToBase = pathToBase.cost;
 
       if (efficiency > maxEfficiency) {
         maxEfficiency = efficiency;
         bestResource = resource;
+        bestResourceToBaseCost = distanceToBase;
+      } else if (efficiency === maxEfficiency) {
+        if (distanceToBase < bestResourceToBaseCost) {
+          bestResource = resource;
+          bestResourceToBaseCost = distanceToBase;
+        }
       }
     }
 
     if (!bestResource) {
-      // No affordable/reachable resource found, the bot's run is effectively over.
       break; 
     }
 
     // --- Execute Plan ---
 
     // 1. Go to the most efficient resource
-    const pathToResource = deps.findPath(gameState.agent, bestResource, gameState.mudPatches);
-    await executePath(pathToResource.path, deps);
-    if (!deps.isGameActive()) break;
+    const pathToResource = deps.findPath(initialGameState.agent, bestResource, initialGameState.mudPatches);
+    const pathSuccess = await executePath(pathToResource.path, deps);
+    if (!pathSuccess || !deps.isGameActive()) break;
 
-    // 2. Collect the resource
-    let stateBeforeAction = deps.getGameState();
-    if (stateBeforeAction) {
-      deps.logCurrentAction(4, stateBeforeAction);
-      deps.handleAction();
-      await delay(0);
+    // 2. Collect the resource and wait for the state to update
+    const stateBeforeCollect = deps.getGameState();
+    if (stateBeforeCollect) {
+        deps.logCurrentAction(4, stateBeforeCollect);
+        deps.handleAction();
     }
-    if (!deps.isGameActive()) break;
+    
+    const stateAfterCollect = await waitForStateChange(
+        (state) => !!state.agent.holding,
+        deps.getGameState
+    );
+
+    if (!stateAfterCollect) {
+        console.error("Bot: Collection seems to have failed or timed out.");
+        break; 
+    }
     
     // 3. Go back to base
-    const currentState = deps.getGameState();
-    if (!currentState) break;
-    const pathToBase = deps.findPath(currentState.agent, currentState.base, currentState.mudPatches);
-    await executePath(pathToBase.path, deps);
-    if (!deps.isGameActive()) break;
+    const pathToBase = deps.findPath(stateAfterCollect.agent, stateAfterCollect.base, stateAfterCollect.mudPatches);
+    const returnPathSuccess = await executePath(pathToBase.path, deps);
+    if (!returnPathSuccess || !deps.isGameActive()) break;
 
-    // 4. Deliver the resource
-    stateBeforeAction = deps.getGameState();
-    if (stateBeforeAction && stateBeforeAction.agent.x === stateBeforeAction.base.x && stateBeforeAction.agent.y === stateBeforeAction.base.y) {
-        deps.logCurrentAction(4, stateBeforeAction);
+    // 4. Deliver the resource and wait for the state to update
+    const stateBeforeDeliver = deps.getGameState();
+    if (stateBeforeDeliver && stateBeforeDeliver.agent.x === stateBeforeDeliver.base.x && stateBeforeDeliver.agent.y === stateBeforeDeliver.base.y) {
+        deps.logCurrentAction(4, stateBeforeDeliver);
         deps.handleAction();
-        await delay(0);
+
+        const stateAfterDeliver = await waitForStateChange(
+            (state) => !state.agent.holding,
+            deps.getGameState
+        );
+
+        if (!stateAfterDeliver) {
+            console.error("Bot: Delivery seems to have failed or timed out.");
+            break;
+        }
     }
   }
 }
