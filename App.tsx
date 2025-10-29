@@ -353,7 +353,6 @@ const App: React.FC = () => {
             handleMove,
             handleAction,
             findPath,
-            endGame,
         });
     }
 

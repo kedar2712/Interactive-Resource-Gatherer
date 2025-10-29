@@ -9,7 +9,6 @@ interface BotDependencies {
   handleMove: (dx: number, dy: number) => void;
   handleAction: () => void;
   findPath: typeof findPath;
-  endGame: () => void; // Added endGame to dependencies
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -152,9 +151,8 @@ export async function runExpertBotEpisode(deps: BotDependencies) {
     }
 
     if (!bestResource || !bestPathToResource || !bestPathToBase) {
-      // If no profitable resource is found, the bot considers the game over.
-      // It must call endGame() to signal this to the main app.
-      deps.endGame();
+      // If no profitable resource is found, just stop playing this episode.
+      // The main controller will start a new game.
       break; 
     }
 
