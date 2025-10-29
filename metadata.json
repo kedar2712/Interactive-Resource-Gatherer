@@ -1,0 +1,5 @@
+{
+  "name": "Interactive Resource Gatherer",
+  "description": "A game designed to generate a dataset for a Deep Reinforcement Learning (DRL) agent. Players control an agent to gather resources within a cost budget, aiming to beat a target score. Player actions, game states, and outcomes are logged for subsequent training.",
+  "requestFramePermissions": []
+}

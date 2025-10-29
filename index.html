@@ -1,0 +1,79 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Interactive Resource Gatherer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Recursive:wght@400;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'bg-color': '#F8F9FA',
+              'text-color': '#212529',
+              'text-muted': '#6C757D',
+              'primary-border': '#4E88E7',
+              'primary-fill': '#EDF4FF',
+              'secondary-border': '#3CC583',
+              'secondary-fill': '#E3FFF2',
+              'tertiary-border': '#92BD39',
+              'tertiary-fill': '#F4FFDC',
+              'danger': '#F43F5E',
+              'mud': '#8D6E63',
+              'success': '#10B981',
+              'warning': '#F59E0B',
+              'target': '#A855F7',
+              'accent': '#4E88E7',
+              'grid-bg': '#E3FFF2',
+              'grid-cell-border': '#92BD39',
+            },
+            fontFamily: {
+              sans: ['Poppins', 'sans-serif'],
+              recursive: ['Recursive', 'sans-serif'],
+            },
+            keyframes: {
+              shake: {
+                '0%, 100%': { transform: 'translateX(0)' },
+                '25%': { transform: 'translateX(-4px)' },
+                '75%': { transform: 'translateX(4px)' },
+              },
+              glow: {
+                '0%': { boxShadow: '0 0 5px #4E88E7' },
+                '50%': { boxShadow: '0 0 20px #4E88E7, 0 0 30px #4E88E7' },
+                '100%': { boxShadow: '0 0 5px #4E88E7' },
+              },
+              fadeIn: {
+                from: { opacity: '0', transform: 'translateY(10px)' },
+                to: { opacity: '1', transform: 'translateY(0)' },
+              }
+            },
+            animation: {
+              shake: 'shake 0.3s ease-in-out',
+              glow: 'glow 0.5s ease-in-out',
+              fadeIn: 'fadeIn 0.5s ease',
+            }
+          },
+        },
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+  }
+}
+</script>
+</head>
+  <body class="bg-bg-color text-text-color font-sans">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

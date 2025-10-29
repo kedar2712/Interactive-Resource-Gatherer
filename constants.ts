@@ -1,0 +1,10 @@
+export const GRID_SIZE = 10;
+export const CELL_SIZE_PX = 45;
+export const NUM_NORMAL_RESOURCES = 6;
+export const NUM_GOLDEN_RESOURCES = 1;
+export const NUM_MUD_PATCHES = 15;
+export const GRASS_COST = 1;
+export const MUD_COST = 3;
+export const NORMAL_TREE_VALUE = 3;
+export const GOLDEN_TREE_VALUE = 5;
+export const BENCHMARK_COST_PER_POINT = 18;
